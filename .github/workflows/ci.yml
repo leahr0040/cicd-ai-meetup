@@ -1,75 +1,51 @@
-# CI ל-coffee-break-api: lint ואז בדיקות על כמה גרסאות Node
 name: CI
 
-# טריגרים: push ל-main, כל PR, והרצה ידנית מה-UI
+# Runs on pushes to main, on every pull request, and when started manually.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
-# הרשאות מינימליות: קריאה בלבד לקוד
+# Minimal permissions: the jobs only need to read the code.
 permissions:
   contents: read
 
-# מבטל ריצה קודמת על אותו branch/PR כשמגיע commit חדש
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  # job ראשון: בדיקת סגנון קוד עם ESLint
+  # Lint runs once, on Node 22.
   lint:
     runs-on: ubuntu-latest
     steps:
-      # שליפת הקוד
-      - uses: actions/checkout@v5
-
-      # התקנת Node 22 + cache של npm לפי package-lock.json
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      # Installs Node and caches npm downloads, keyed by package-lock.json.
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      # התקנה נקייה ושחזורית לפי ה-lockfile
       - run: npm ci
-
-      # הרצת ה-linter
       - run: npm run lint
 
-  # job שני: בדיקות, רץ רק אחרי ש-lint עבר
+  # Tests start only after lint passes, and run on Node 22 and 24 in parallel.
   test:
     needs: lint
     runs-on: ubuntu-latest
-
-    # matrix על Node 22 ו-24; fail-fast כבוי כדי לראות תוצאות של שתי הגרסאות
     strategy:
-      fail-fast: false
+      fail-fast: false # if one Node version fails, the other still finishes
       matrix:
         node-version: [22, 24]
-
     steps:
-      # שליפת הקוד
-      - uses: actions/checkout@v5
-
-      # התקנת גרסת ה-Node מה-matrix + cache של npm
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-
-      # התקנה נקייה לפי ה-lockfile
       - run: npm ci
-
-      # הרצת הבדיקות (pretest:ci יוצר את reports/ אוטומטית, נכתב junit.xml)
+      # pretest:ci runs automatically first and creates the reports/ folder.
       - run: npm run test:ci
-
-      # העלאת reports/ כ-artifact גם אם הבדיקות נכשלו; שם ייחודי לכל גרסת Node
+      # Always uploads reports/, whether the tests passed, failed, or the run was cancelled.
       - name: Upload test reports
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-node-${{ matrix.node-version }}
+          name: test-reports-node-${{ matrix.node-version }} # each Node version needs its own artifact name
           path: reports/
-          if-no-files-found: warn
-          retention-days: 7
